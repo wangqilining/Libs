@@ -1,18 +1,9 @@
 #include "NJThread.h"
+#include <iostream>
+using namespace std;
 
 namespace NJ::Libs {
     NJThread::NJThread() : m_Job(nullptr),m_JobThread(nullptr),m_RunFlag(false) {
-
-    }
-
-    std::shared_ptr<IRunnable> NJThread::getJob() {
-        std::unique_lock<std::mutex> ul(m_JobMut);
-        return m_Job;
-    }
-
-    void NJThread::setJob(std::shared_ptr<IRunnable> job) {
-        std::unique_lock<std::mutex> ul(m_JobMut);
-        m_Job = job;
     }
 
     bool NJThread::getRunFlag() {
@@ -29,38 +20,60 @@ namespace NJ::Libs {
         if( m_JobThread != nullptr) {
             return;
         }
+
         setRunFlag(true);
         m_JobThread = new std::thread(&NJThread::threadFunc,this);
+        m_JobThread->detach();
+        std::mutex tmp;
+        m_StartCV.wait(tmp);
+        cout<<"NJThread start"<<endl;
     }
 
     void NJThread::stop() {
         setRunFlag(false);
-        while(getJob()!=nullptr) {
-        }
         m_JobCV.notify_all();
+        delete m_JobThread;
     }
 
     bool NJThread::submitJob(std::shared_ptr<IRunnable> job) {
-        if(getJob() != nullptr || job == nullptr) {
+        m_JobMut.lock();
+        if(m_Job != nullptr || job == nullptr) {
+            m_JobMut.unlock();
             return false;
         }
-        setJob(job);
+        m_Job = job;
+        m_JobMut.unlock();
         m_JobCV.notify_all();
         return true;
     }
 
     bool NJThread::isIdle() {
-        return (getJob()==nullptr);
+        bool res = true;
+        if(m_JobMut.try_lock()) {
+            res = (m_Job==nullptr);
+            m_JobMut.unlock();
+        }
+        return  res;
     }
 
     void NJThread::threadFunc() {
-        while(getRunFlag()) {
-
-            if(getJob() != nullptr) {
-                m_Job->run();
+        m_StartCV.notify_all();
+        bool run = true;
+        while(run) {
+            m_JobCV.wait(m_CVMut);
+            if(!getRunFlag()) {
+                break;
             }
-            setJob(nullptr);
-            m_JobCV.wait(m_JobMut);
+            m_JobMut.lock();
+            if(m_Job != nullptr) {
+                m_JobMut.unlock();
+                m_Job->run();
+                m_JobMut.lock();
+                m_Job = nullptr;
+                m_JobMut.unlock();
+                continue;
+            }
+            m_JobMut.unlock();
         }
     }
 

@@ -18,9 +18,6 @@ namespace NJ::Libs {
         bool isIdle();
         virtual ~NJThread();
     private:
-
-        std::shared_ptr<IRunnable> getJob();
-        void setJob(std::shared_ptr<IRunnable>);
         bool getRunFlag();
         void setRunFlag(bool);
 
@@ -30,8 +27,10 @@ namespace NJ::Libs {
         std::thread* m_JobThread;
         bool  m_RunFlag;
         std::mutex m_RunFlagMut;
+        std::mutex m_CVMut;
         std::mutex m_JobMut;
         std::condition_variable_any m_JobCV;
+        std::condition_variable_any m_StartCV;
     };
 
 }
